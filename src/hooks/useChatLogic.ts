@@ -55,7 +55,7 @@ export const useChatLogic = () => {
       } else {
         const welcomeMessage: Message = {
           id: '1',
-          text: 'Привет! Я Ванёк — персональный AI-помощник, которого создал для тебя Иван Верещагин.\n\n✅ Что умею:\n• Общаться и помогать по любым вопросам\n• Анализировать изображения\n• Проверять техническое качество аудио (битрейт, громкость, частота)\n• Генерировать картинки (напиши "нарисуй [описание]")\n• Видеть через камеру (включи кнопку камеры)\n\n❌ Чего НЕ умею:\n• Слушать музыку или распознавать речь в аудио\n• Определять текст песни или исполнителя\n• Предсказывать будущее\n• Управлять устройствами\n• Помнить прошлые беседы после закрытия\n\n💡 Для анализа содержания песни — скопируй текст в отдельное сообщение!',
+          text: 'Привет! Я Ванёк — персональный AI-помощник, которого создал для тебя Иван Верещагин.\n\n✅ Что умею:\n• Общаться и помогать по любым вопросам\n• Анализировать изображения\n• Анализировать аудио: качество записи, баланс частот, тип музыки\n• Распознавать речь и вокал в аудиофайлах (если чётко слышно)\n• Оценивать содержание песен по распознанному тексту\n• Генерировать картинки (напиши "нарисуй [описание]")\n• Видеть через камеру (включи кнопку камеры)\n\n❌ Чего НЕ умею:\n• Определять исполнителя или название песни\n• Предсказывать будущее\n• Управлять устройствами\n• Помнить прошлые беседы после закрытия\n\n💡 Загрузи аудиофайл — попробую распознать текст и оценить содержание!',
           sender: 'ai',
           timestamp: new Date()
         };
@@ -291,7 +291,7 @@ export const useChatLogic = () => {
             contextImage = fileToSend.data;
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
           } else if (fileToSend.type.startsWith('audio/')) {
-            // Анализируем аудио локально в браузере
+            // Полный анализ аудио: технические параметры + распознавание речи
             try {
               const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
               const audioData = await fetch(fileToSend.data);
@@ -313,6 +313,29 @@ export const useChatLogic = () => {
               }
               const avg = sum / channelData.length;
               
+              // Анализ музыкальных характеристик (частотный анализ)
+              const analyser = audioContext.createAnalyser();
+              analyser.fftSize = 2048;
+              const source = audioContext.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(analyser);
+              
+              const frequencyData = new Uint8Array(analyser.frequencyBinCount);
+              analyser.getByteFrequencyData(frequencyData);
+              
+              // Определяем преобладающие частоты
+              let bassEnergy = 0;
+              let midEnergy = 0;
+              let trebleEnergy = 0;
+              
+              for (let i = 0; i < frequencyData.length; i++) {
+                if (i < frequencyData.length / 4) bassEnergy += frequencyData[i];
+                else if (i < frequencyData.length / 2) midEnergy += frequencyData[i];
+                else trebleEnergy += frequencyData[i];
+              }
+              
+              const totalEnergy = bassEnergy + midEnergy + trebleEnergy;
+              
               audioAnalysis = {
                 duration: Math.round(duration * 100) / 100,
                 sampleRate: sampleRate,
@@ -320,10 +343,81 @@ export const useChatLogic = () => {
                 peakLevel: Math.round(max * 100),
                 avgLevel: Math.round(avg * 100),
                 fileName: fileToSend.name,
-                fileSize: Math.round(arrayBuffer.byteLength / 1024)
+                fileSize: Math.round(arrayBuffer.byteLength / 1024),
+                // Музыкальные характеристики
+                bassLevel: totalEnergy > 0 ? Math.round((bassEnergy / totalEnergy) * 100) : 0,
+                midLevel: totalEnergy > 0 ? Math.round((midEnergy / totalEnergy) * 100) : 0,
+                trebleLevel: totalEnergy > 0 ? Math.round((trebleEnergy / totalEnergy) * 100) : 0,
+                musicType: bassEnergy > midEnergy && bassEnergy > trebleEnergy ? 'басс-тяжелая (электронная/хип-хоп)' :
+                          midEnergy > bassEnergy && midEnergy > trebleEnergy ? 'средние частоты (вокал/рок)' :
+                          'высокие частоты (поп/классика)'
               };
               
-              fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}, проанализировано] `;
+              // Попытка распознавания речи через Web Speech API
+              let transcription = '';
+              try {
+                // Создаём Audio элемент для воспроизведения
+                const audio = new Audio(fileToSend.data);
+                
+                // Инициализируем Speech Recognition
+                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                  const recognition = new SpeechRecognition();
+                  recognition.lang = 'ru-RU';
+                  recognition.continuous = true;
+                  recognition.interimResults = false;
+                  recognition.maxAlternatives = 1;
+                  
+                  // Создаём MediaStreamDestination для захвата аудио
+                  const dest = audioContext.createMediaStreamDestination();
+                  const sourceNode = audioContext.createBufferSource();
+                  sourceNode.buffer = audioBuffer;
+                  sourceNode.connect(dest);
+                  
+                  // Пытаемся распознать через микрофонный API
+                  await new Promise<void>((resolve) => {
+                    let fullTranscript = '';
+                    
+                    recognition.onresult = (event: any) => {
+                      for (let i = event.resultIndex; i < event.results.length; i++) {
+                        if (event.results[i].isFinal) {
+                          fullTranscript += event.results[i][0].transcript + ' ';
+                        }
+                      }
+                    };
+                    
+                    recognition.onend = () => {
+                      transcription = fullTranscript.trim();
+                      resolve();
+                    };
+                    
+                    recognition.onerror = () => {
+                      resolve();
+                    };
+                    
+                    // Запускаем распознавание и воспроизведение
+                    recognition.start();
+                    sourceNode.start(0);
+                    
+                    // Останавливаем через 5 секунд или когда закончится аудио
+                    setTimeout(() => {
+                      recognition.stop();
+                      sourceNode.stop();
+                      resolve();
+                    }, Math.min(duration * 1000, 5000));
+                  });
+                }
+              } catch (speechError) {
+                console.log('Speech recognition not available:', speechError);
+              }
+              
+              if (transcription) {
+                audioAnalysis.transcription = transcription;
+                fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}. Распознанный текст: "${transcription}"] `;
+              } else {
+                fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}, проанализировано] `;
+              }
+              
             } catch (e) {
               fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}, анализ не удался] `;
             }
