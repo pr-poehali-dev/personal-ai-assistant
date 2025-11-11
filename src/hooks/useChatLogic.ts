@@ -32,7 +32,6 @@ export const useChatLogic = () => {
   const [isAiReady, setIsAiReady] = useState(true);
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
-  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const recognitionRef = useRef<any>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
 
@@ -145,13 +144,6 @@ export const useChatLogic = () => {
 
   const startCamera = async () => {
     try {
-      console.log('🎥 Запуск камеры...');
-      
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Камера не поддерживается в этом браузере');
-      }
-
-      console.log('📹 Запрос доступа к камере и микрофону...');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           width: { ideal: 640 },
@@ -161,43 +153,35 @@ export const useChatLogic = () => {
         audio: true
       });
       
-      console.log('✅ Доступ получен, треки:', stream.getTracks().map(t => `${t.kind}: ${t.label}`));
       audioStreamRef.current = stream;
       
       if (videoRef.current) {
-        console.log('🎬 Привязка потока к видео элементу...');
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = async () => {
           try {
-            console.log('▶️ Запуск видео...');
             await videoRef.current?.play();
-            console.log('✅ Видео запущено!');
             setIsCameraOn(true);
-            setShowPermissionDialog(false);
             startVoiceRecognition();
             toast({
-              title: 'Камера включена',
-              description: 'Теперь я вижу и слышу тебя!',
+              title: '📹 Камера включена',
+              description: 'Видео и аудио готовы!',
             });
           } catch (e) {
-            console.error('❌ Ошибка воспроизведения:', e);
+            console.error('Ошибка:', e);
           }
         };
-      } else {
-        console.error('❌ videoRef.current не существует!');
       }
     } catch (error: any) {
-      console.error('❌ Ошибка камеры:', error);
+      console.error('Ошибка камеры:', error);
       setIsCameraOn(false);
-      setShowPermissionDialog(true);
       
-      let errorMsg = 'Не удалось получить доступ к камере';
+      let errorMsg = 'Не удалось включить камеру';
       if (error.name === 'NotAllowedError') {
-        errorMsg = 'Вы запретили доступ к камере. Разрешите в настройках браузера';
+        errorMsg = 'Разрешите доступ к камере в настройках браузера';
       } else if (error.name === 'NotFoundError') {
-        errorMsg = 'Камера не найдена на устройстве';
+        errorMsg = 'Камера не найдена';
       } else if (error.name === 'NotReadableError') {
-        errorMsg = 'Камера уже используется другим приложением';
+        errorMsg = 'Камера занята другим приложением';
       }
       
       toast({
@@ -227,8 +211,10 @@ export const useChatLogic = () => {
   const toggleCamera = () => {
     if (isCameraOn) {
       stopCamera();
+      toast({
+        title: 'Камера выключена',
+      });
     } else {
-      setShowPermissionDialog(true);
       startCamera();
     }
   };
@@ -717,8 +703,6 @@ export const useChatLogic = () => {
   return {
     videoRef,
     fileInputRef,
-    showPermissionDialog,
-    setShowPermissionDialog,
     canvasRef,
     messages,
     inputValue,
