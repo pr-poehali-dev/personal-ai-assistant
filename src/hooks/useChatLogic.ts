@@ -447,9 +447,21 @@ export const useChatLogic = () => {
         }
         
         if (fileToSend) {
+          console.log('📎 Файл загружен:', {
+            name: fileToSend.name,
+            type: fileToSend.type,
+            size: fileToSend.data.length
+          });
+          
           // ВАЖНО: Проверяем видео ПЕРВЫМ (по расширению и типу)
           const isVideoFile = fileToSend.type.startsWith('video/') || 
                               fileToSend.name.match(/\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i);
+          
+          console.log('🔍 Проверка на видео:', {
+            isVideoFile,
+            typeMatch: fileToSend.type.startsWith('video/'),
+            extensionMatch: !!fileToSend.name.match(/\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i)
+          });
           
           if (isVideoFile) {
             // Обработка видео - извлекаем кадр для анализа
@@ -547,9 +559,12 @@ export const useChatLogic = () => {
               });
             }
           } else if (fileToSend.type.startsWith('image/')) {
+            console.log('🖼️ Обрабатываю изображение');
             contextImage = fileToSend.data;
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
           } else if (fileToSend.type.startsWith('audio/')) {
+            console.log('🎵 Обрабатываю аудио');
+
             // Полный анализ аудио: технические параметры + распознавание речи
             try {
               const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
