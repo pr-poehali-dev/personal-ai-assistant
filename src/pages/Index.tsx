@@ -14,6 +14,7 @@ interface Message {
   timestamp: Date;
   hasFile?: boolean;
   fileName?: string;
+  imageUrl?: string;
 }
 
 declare global {
@@ -27,11 +28,12 @@ const Index = () => {
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Готов помочь с любой задачей.',
+      text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Могу общаться, генерировать изображения, анализировать файлы и даже видеть через камеру!',
       sender: 'ai',
       timestamp: new Date()
     }
@@ -43,29 +45,55 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [currentFile, setCurrentFile] = useState<{ data: string; type: string; name: string } | null>(null);
+  const [isPuterReady, setIsPuterReady] = useState(false);
 
   useEffect(() => {
-    startCamera();
-    return () => {
-      stopCamera();
+    const initPuter = async () => {
+      try {
+        if (window.puter) {
+          await window.puter.auth.signIn({ appID: 'ai-assistant-vanek' });
+          setIsPuterReady(true);
+          console.log('Puter.js инициализирован');
+        }
+      } catch (error) {
+        console.log('Puter авторизация пропущена:', error);
+        setIsPuterReady(true);
+      }
     };
+
+    if (document.readyState === 'complete') {
+      initPuter();
+    } else {
+      window.addEventListener('load', initPuter);
+      return () => window.removeEventListener('load', initPuter);
+    }
   }, []);
 
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { width: 640, height: 480 },
+        video: { 
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user'
+        },
         audio: false 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        await videoRef.current.play();
         setIsCameraOn(true);
+        toast({
+          title: 'Камера включена',
+          description: 'Теперь я вижу тебя!',
+        });
       }
     } catch (error) {
-      console.error('Камера недоступна:', error);
+      console.error('Ошибка камеры:', error);
+      setIsCameraOn(false);
       toast({
         title: 'Камера недоступна',
-        description: 'Не удалось подключиться к веб-камере',
+        description: 'Разрешите доступ к камере в настройках браузера',
         variant: 'destructive'
       });
     }
@@ -75,8 +103,33 @@ const Index = () => {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
       setIsCameraOn(false);
     }
+  };
+
+  const toggleCamera = () => {
+    if (isCameraOn) {
+      stopCamera();
+    } else {
+      startCamera();
+    }
+  };
+
+  const captureFrame = (): string | null => {
+    if (!videoRef.current || !canvasRef.current) return null;
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    
+    if (!context) return null;
+    
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.drawImage(video, 0, 0);
+    
+    return canvas.toDataURL('image/jpeg', 0.8);
   };
 
   const handleSendMessage = async () => {
@@ -92,77 +145,110 @@ const Index = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
-    const messageText = inputValue;
+    const messageText = inputValue.trim();
     const fileToSend = currentFile;
     setInputValue('');
     setCurrentFile(null);
     setIsLoading(true);
 
     try {
-      if (!window.puter) {
-        throw new Error('Puter SDK не загружен');
+      if (!isPuterReady || !window.puter) {
+        throw new Error('AI не готов. Перезагрузите страницу.');
       }
 
-      const conversationHistory = messages.slice(-10).map(msg => ({
-        role: msg.sender === 'user' ? 'user' : 'assistant',
-        content: msg.text
-      }));
+      const isImageRequest = messageText.toLowerCase().includes('нарисуй') || 
+                            messageText.toLowerCase().includes('создай изображение') ||
+                            messageText.toLowerCase().includes('сгенерируй картинку');
 
-      conversationHistory.push({
-        role: 'system',
-        content: 'Ты — Ванёк, персональный ИИ-помощник. Твой стиль общения: краткий, уверенный, как у старого друга. Отвечай по делу, без лишней воды. Ты можешь создавать изображения, генерировать код, анализировать файлы и помогать с любыми задачами.'
-      });
+      const isCameraRequest = messageText.toLowerCase().includes('вид') && 
+                             (messageText.toLowerCase().includes('меня') || 
+                              messageText.toLowerCase().includes('камер'));
 
-      let userPrompt = messageText;
-      
-      if (fileToSend) {
-        if (fileToSend.type.startsWith('image/')) {
-          userPrompt = `${messageText}\n\n[Изображение: ${fileToSend.name}]`;
-        } else {
-          try {
-            const fileContent = atob(fileToSend.data);
-            userPrompt = `${messageText}\n\nСодержимое файла ${fileToSend.name}:\n${fileContent.substring(0, 4000)}`;
-          } catch (e) {
-            userPrompt = `${messageText}\n\n[Файл: ${fileToSend.name} - не удалось прочитать]`;
+      if (isImageRequest) {
+        const imagePrompt = messageText.replace(/нарисуй|создай изображение|сгенерируй картинку/gi, '').trim();
+        
+        try {
+          const imageResponse = await window.puter.ai.txt2img(imagePrompt || 'красивый пейзаж');
+          
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const aiResponse: Message = {
+              id: Date.now().toString(),
+              text: `Вот что получилось по запросу: "${imagePrompt}"`,
+              sender: 'ai',
+              timestamp: new Date(),
+              imageUrl: e.target?.result as string
+            };
+            setMessages(prev => [...prev, aiResponse]);
+          };
+          reader.readAsDataURL(imageResponse);
+        } catch (imgError) {
+          console.error('Ошибка генерации:', imgError);
+          throw new Error('Не удалось сгенерировать изображение');
+        }
+      } else {
+        let systemPrompt = 'Ты — Ванёк, персональный ИИ-помощник. Стиль: краткий, уверенный, как старый друг. Отвечай по делу без воды. Можешь генерировать изображения (скажи "нарисуй..."), анализировать файлы и видеть через камеру.';
+        
+        let userPrompt = messageText;
+        
+        if (isCameraRequest && isCameraOn) {
+          const frame = captureFrame();
+          if (frame) {
+            userPrompt = `${messageText}\n\n[Отправил фото с камеры]`;
+            systemPrompt += ' Пользователь прислал своё фото с веб-камеры. Опиши что видишь.';
           }
         }
+        
+        if (fileToSend) {
+          if (fileToSend.type.startsWith('image/')) {
+            userPrompt = `${messageText}\n\n[Изображение: ${fileToSend.name}]`;
+          } else {
+            try {
+              const fileContent = atob(fileToSend.data);
+              userPrompt = `${messageText}\n\nСодержимое файла ${fileToSend.name}:\n${fileContent.substring(0, 4000)}`;
+            } catch (e) {
+              userPrompt = `${messageText}\n\n[Файл: ${fileToSend.name} - бинарный формат]`;
+            }
+          }
+        }
+
+        const conversationHistory = messages.slice(-8).map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.text
+        }));
+
+        conversationHistory.unshift({ role: 'system', content: systemPrompt });
+        conversationHistory.push({ role: 'user', content: userPrompt });
+
+        const response = await window.puter.ai.chat(conversationHistory);
+        
+        const aiReply = response?.message?.content || response?.text || response?.toString() || 'Не удалось получить ответ';
+
+        const aiResponse: Message = {
+          id: (Date.now() + 1).toString(),
+          text: aiReply,
+          sender: 'ai',
+          timestamp: new Date()
+        };
+
+        setMessages(prev => [...prev, aiResponse]);
       }
-
-      conversationHistory.push({
-        role: 'user',
-        content: userPrompt
-      });
-
-      const response = await window.puter.ai.chat({
-        messages: conversationHistory,
-        model: 'gpt-4o-mini'
-      });
-
-      const aiReply = response.message?.content || response.text || 'Не удалось получить ответ';
-
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        text: aiReply,
-        sender: 'ai',
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, aiResponse]);
     } catch (error: any) {
-      console.error('AI Error:', error);
-      toast({
-        title: 'Ошибка',
-        description: error.message || 'Не удалось получить ответ от ИИ',
-        variant: 'destructive'
-      });
+      console.error('Ошибка AI:', error);
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: 'Извини, возникла проблема при обработке запроса. Попробуй ещё раз.',
+        text: `Извини, возникла проблема: ${error.message || 'Неизвестная ошибка'}. Попробуй ещё раз или перезагрузи страницу.`,
         sender: 'ai',
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
+      
+      toast({
+        title: 'Ошибка',
+        description: error.message,
+        variant: 'destructive'
+      });
     } finally {
       setIsLoading(false);
     }
@@ -170,12 +256,10 @@ const Index = () => {
 
   const handleVoiceToggle = () => {
     setIsRecording(!isRecording);
-    if (!isRecording) {
-      toast({
-        title: 'Голосовой ввод',
-        description: 'Функция в разработке. Пока используйте текстовый режим.',
-      });
-    }
+    toast({
+      title: 'Голосовой ввод',
+      description: 'Функция в активной разработке',
+    });
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -200,7 +284,7 @@ const Index = () => {
     if (file.size > maxSize) {
       toast({
         title: 'Файл слишком большой',
-        description: 'Максимальный размер файла: 10 МБ',
+        description: 'Максимальный размер: 10 МБ',
         variant: 'destructive'
       });
       return;
@@ -226,26 +310,61 @@ const Index = () => {
   };
 
   const quickActions = [
-    { icon: 'Image', label: 'Создать изображение', color: 'bg-purple-500' },
-    { icon: 'Video', label: 'Сгенерировать видео', color: 'bg-pink-500' },
-    { icon: 'Code', label: 'Написать код', color: 'bg-blue-500' },
-    { icon: 'FileText', label: 'Анализ файлов', color: 'bg-green-500', action: () => fileInputRef.current?.click() },
-    { icon: 'Gamepad2', label: 'Создать игру', color: 'bg-orange-500' },
-    { icon: 'Search', label: 'Найти софт', color: 'bg-cyan-500' }
+    { 
+      icon: 'Image', 
+      label: 'Создать изображение', 
+      color: 'bg-purple-500',
+      action: () => setInputValue('Нарисуй ')
+    },
+    { 
+      icon: 'Video', 
+      label: 'Включить камеру', 
+      color: 'bg-pink-500',
+      action: toggleCamera
+    },
+    { 
+      icon: 'Code', 
+      label: 'Написать код', 
+      color: 'bg-blue-500',
+      action: () => setInputValue('Напиши код для ')
+    },
+    { 
+      icon: 'FileText', 
+      label: 'Анализ файлов', 
+      color: 'bg-green-500', 
+      action: () => fileInputRef.current?.click() 
+    },
+    { 
+      icon: 'Lightbulb', 
+      label: 'Придумать идею', 
+      color: 'bg-yellow-500',
+      action: () => setInputValue('Придумай идею для ')
+    },
+    { 
+      icon: 'BookOpen', 
+      label: 'Объяснить тему', 
+      color: 'bg-cyan-500',
+      action: () => setInputValue('Объясни мне ')
+    }
   ];
 
   return (
     <div className="min-h-screen bg-background dark flex">
+      <canvas ref={canvasRef} className="hidden" />
+      
       <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
         <div className="absolute top-8 right-8 z-10 flex items-center gap-2">
+          <Badge variant={isPuterReady ? 'default' : 'destructive'}>
+            {isPuterReady ? 'AI готов' : 'Загрузка...'}
+          </Badge>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setIsCameraOn(!isCameraOn)}
+            onClick={toggleCamera}
             className="gap-2"
           >
             <Icon name={isCameraOn ? 'VideoOff' : 'Video'} size={16} />
-            {isCameraOn ? 'Выкл камеру' : 'Вкл камеру'}
+            {isCameraOn ? 'Выкл' : 'Вкл'}
           </Button>
           <Button
             variant="outline"
@@ -254,7 +373,6 @@ const Index = () => {
             className="gap-2"
           >
             <Icon name="Settings" size={16} />
-            Админка
           </Button>
         </div>
 
@@ -280,6 +398,11 @@ const Index = () => {
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-28 h-28 rounded-full bg-gradient-to-br from-primary/20 to-transparent animate-pulse" />
               </div>
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-24 h-24 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
             </div>
           </div>
 
@@ -322,7 +445,7 @@ const Index = () => {
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="gap-1">
                   <Icon name="MessageSquare" size={14} />
-                  {isVoiceMode ? 'Голосовой режим' : 'Текстовый режим'}
+                  {isVoiceMode ? 'Голос' : 'Текст'}
                 </Badge>
                 {currentFile && (
                   <Badge variant="secondary" className="gap-1">
@@ -355,7 +478,7 @@ const Index = () => {
               <div className="absolute inset-0 flex items-center justify-center bg-primary/20 rounded-lg backdrop-blur-sm z-10">
                 <div className="text-center">
                   <Icon name="Upload" size={48} className="mx-auto mb-2 text-primary" />
-                  <p className="text-lg font-semibold">Отпусти файл для загрузки</p>
+                  <p className="text-lg font-semibold">Отпусти файл</p>
                 </div>
               </div>
             )}
@@ -380,6 +503,13 @@ const Index = () => {
                       </div>
                     )}
                     <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                    {message.imageUrl && (
+                      <img 
+                        src={message.imageUrl} 
+                        alt="Generated" 
+                        className="mt-2 rounded-lg max-w-full"
+                      />
+                    )}
                     <span className="text-xs opacity-70 mt-1 block">
                       {message.timestamp.toLocaleTimeString('ru-RU', {
                         hour: '2-digit',
@@ -405,7 +535,7 @@ const Index = () => {
             {!isVoiceMode ? (
               <div className="flex gap-2">
                 <Textarea
-                  placeholder="Введи свой запрос или перетащи файл..."
+                  placeholder="Спроси меня о чём угодно, попроси нарисовать или загрузи файл..."
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={(e) => {
@@ -415,13 +545,13 @@ const Index = () => {
                     }
                   }}
                   className="min-h-[60px] resize-none"
-                  disabled={isLoading}
+                  disabled={isLoading || !isPuterReady}
                 />
                 <Button
                   onClick={handleSendMessage}
                   size="icon"
                   className="h-[60px] w-[60px] shrink-0"
-                  disabled={isLoading || (!inputValue.trim() && !currentFile)}
+                  disabled={isLoading || !isPuterReady || (!inputValue.trim() && !currentFile)}
                 >
                   <Icon name="Send" size={20} />
                 </Button>
@@ -438,7 +568,7 @@ const Index = () => {
                   <Icon name="Mic" size={48} />
                 </Button>
                 <p className="text-sm text-muted-foreground">
-                  {isRecording ? 'Слушаю...' : 'Нажми для начала записи'}
+                  {isRecording ? 'Слушаю...' : 'Нажми для записи'}
                 </p>
               </div>
             )}
