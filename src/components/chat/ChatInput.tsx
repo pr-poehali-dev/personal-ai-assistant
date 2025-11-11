@@ -104,7 +104,7 @@ export const ChatInput = ({
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept="image/*,video/*,audio/*,.mp4,.mov,.avi,.mkv,.webm,.flv,.wmv,.m4v,.mp3,.wav,.ogg,.m4a,.flac,.aac,.pdf,.doc,.docx,.txt"
+          accept="image/*,audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.pdf,.doc,.docx,.txt"
           onChange={onFileSelect}
         />
       </div>
