@@ -20,8 +20,12 @@ interface Message {
 declare global {
   interface Window {
     puter: any;
+    speechSynthesis: SpeechSynthesis;
+    SpeechSynthesisUtterance: typeof SpeechSynthesisUtterance;
   }
 }
+
+const BACKEND_URL = 'https://functions.poehali.dev/d950984d-c56a-4c48-9322-c4937c26cffd';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -29,15 +33,9 @@ const Index = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sessionIdRef = useRef<string>(Date.now().toString() + Math.random().toString(36).substring(7));
   
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Могу общаться, генерировать изображения, анализировать файлы и даже видеть через камеру!',
-      sender: 'ai',
-      timestamp: new Date()
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -46,17 +44,19 @@ const Index = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [currentFile, setCurrentFile] = useState<{ data: string; type: string; name: string } | null>(null);
   const [isPuterReady, setIsPuterReady] = useState(false);
+  const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
 
   useEffect(() => {
+    loadMessagesFromDB();
+    
     const initPuter = async () => {
       try {
         if (window.puter) {
-          await window.puter.auth.signIn({ appID: 'ai-assistant-vanek' });
           setIsPuterReady(true);
-          console.log('Puter.js инициализирован');
+          console.log('Puter.js готов к работе');
         }
       } catch (error) {
-        console.log('Puter авторизация пропущена:', error);
+        console.log('Ошибка Puter:', error);
         setIsPuterReady(true);
       }
     };
@@ -68,6 +68,109 @@ const Index = () => {
       return () => window.removeEventListener('load', initPuter);
     }
   }, []);
+
+  const loadMessagesFromDB = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}?sessionId=${sessionIdRef.current}`);
+      const data = await response.json();
+      
+      if (data.messages && data.messages.length > 0) {
+        const loadedMessages = data.messages.map((msg: any) => ({
+          id: msg.id,
+          text: msg.text,
+          sender: msg.sender,
+          timestamp: new Date(msg.timestamp),
+          hasFile: msg.hasFile,
+          fileName: msg.fileName,
+          imageUrl: msg.imageUrl
+        }));
+        setMessages(loadedMessages);
+      } else {
+        const welcomeMessage: Message = {
+          id: '1',
+          text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Могу общаться, генерировать изображения, анализировать файлы и даже видеть через камеру!',
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        setMessages([welcomeMessage]);
+        await saveMessageToDB(welcomeMessage);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки истории:', error);
+      const welcomeMessage: Message = {
+        id: '1',
+        text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Могу общаться, генерировать изображения, анализировать файлы и даже видеть через камеру!',
+        sender: 'ai',
+        timestamp: new Date()
+      };
+      setMessages([welcomeMessage]);
+    }
+  };
+
+  const saveMessageToDB = async (message: Message) => {
+    try {
+      await fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: sessionIdRef.current,
+          messageId: message.id,
+          sender: message.sender,
+          text: message.text,
+          hasFile: message.hasFile || false,
+          fileName: message.fileName || null,
+          imageUrl: message.imageUrl || null
+        })
+      });
+    } catch (error) {
+      console.error('Ошибка сохранения:', error);
+    }
+  };
+
+  const speak = (text: string) => {
+    if (!isSpeechEnabled || !window.speechSynthesis) return;
+    
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ru-RU';
+    utterance.rate = 1.1;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    const voices = window.speechSynthesis.getVoices();
+    const russianVoice = voices.find(voice => voice.lang.startsWith('ru'));
+    if (russianVoice) {
+      utterance.voice = russianVoice;
+    }
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const exportConversation = () => {
+    const text = messages.map(msg => {
+      const time = msg.timestamp.toLocaleString('ru-RU');
+      const sender = msg.sender === 'user' ? 'Вы' : 'Ванёк';
+      return `[${time}] ${sender}: ${msg.text}`;
+    }).join('\n\n');
+    
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `диалог-${new Date().toLocaleDateString('ru-RU')}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    toast({
+      title: 'Экспорт завершён',
+      description: 'Диалог сохранён в файл',
+    });
+  };
 
   const startCamera = async () => {
     try {
@@ -145,6 +248,8 @@ const Index = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    await saveMessageToDB(userMessage);
+    
     const messageText = inputValue.trim();
     const fileToSend = currentFile;
     setInputValue('');
@@ -167,25 +272,22 @@ const Index = () => {
       if (isImageRequest) {
         const imagePrompt = messageText.replace(/нарисуй|создай изображение|сгенерируй картинку/gi, '').trim();
         
-        try {
-          const imageResponse = await window.puter.ai.txt2img(imagePrompt || 'красивый пейзаж');
-          
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const aiResponse: Message = {
-              id: Date.now().toString(),
-              text: `Вот что получилось по запросу: "${imagePrompt}"`,
-              sender: 'ai',
-              timestamp: new Date(),
-              imageUrl: e.target?.result as string
-            };
-            setMessages(prev => [...prev, aiResponse]);
+        const imageResponse = await window.puter.ai.txt2img(imagePrompt || 'красивый пейзаж');
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const aiResponse: Message = {
+            id: Date.now().toString(),
+            text: `Вот что получилось по запросу: "${imagePrompt}"`,
+            sender: 'ai',
+            timestamp: new Date(),
+            imageUrl: e.target?.result as string
           };
-          reader.readAsDataURL(imageResponse);
-        } catch (imgError) {
-          console.error('Ошибка генерации:', imgError);
-          throw new Error('Не удалось сгенерировать изображение');
-        }
+          setMessages(prev => [...prev, aiResponse]);
+          await saveMessageToDB(aiResponse);
+          speak(aiResponse.text);
+        };
+        reader.readAsDataURL(imageResponse);
       } else {
         let systemPrompt = 'Ты — Ванёк, персональный ИИ-помощник. Стиль: краткий, уверенный, как старый друг. Отвечай по делу без воды. Можешь генерировать изображения (скажи "нарисуй..."), анализировать файлы и видеть через камеру.';
         
@@ -232,6 +334,8 @@ const Index = () => {
         };
 
         setMessages(prev => [...prev, aiResponse]);
+        await saveMessageToDB(aiResponse);
+        speak(aiReply);
       }
     } catch (error: any) {
       console.error('Ошибка AI:', error);
@@ -243,6 +347,7 @@ const Index = () => {
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
+      await saveMessageToDB(errorMessage);
       
       toast({
         title: 'Ошибка',
@@ -341,10 +446,10 @@ const Index = () => {
       action: () => setInputValue('Придумай идею для ')
     },
     { 
-      icon: 'BookOpen', 
-      label: 'Объяснить тему', 
+      icon: 'Download', 
+      label: 'Экспорт диалога', 
       color: 'bg-cyan-500',
-      action: () => setInputValue('Объясни мне ')
+      action: exportConversation
     }
   ];
 
@@ -357,6 +462,15 @@ const Index = () => {
           <Badge variant={isPuterReady ? 'default' : 'destructive'}>
             {isPuterReady ? 'AI готов' : 'Загрузка...'}
           </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
+            className="gap-2"
+          >
+            <Icon name={isSpeechEnabled ? 'Volume2' : 'VolumeX'} size={16} />
+            {isSpeechEnabled ? 'Озвучка' : 'Тихо'}
+          </Button>
           <Button
             variant="outline"
             size="sm"

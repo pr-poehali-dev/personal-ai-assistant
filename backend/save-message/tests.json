@@ -1,0 +1,27 @@
+{
+  "tests": [
+    {
+      "name": "Save message to database",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "sessionId": "test-session-123",
+        "messageId": "msg-001",
+        "sender": "user",
+        "text": "Test message",
+        "hasFile": false
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get messages from database",
+      "method": "GET",
+      "path": "/?sessionId=test-session-123",
+      "expectedStatus": 200
+    }
+  ]
+}
