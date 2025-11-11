@@ -5,8 +5,8 @@
       "method": "POST",
       "path": "/",
       "body": {
-        "messages": [
-          {"role": "system", "content": "Ты помощник"},
+        "message": "Привет",
+        "history": [
           {"role": "user", "content": "Привет"}
         ]
       },

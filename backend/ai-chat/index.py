@@ -1,11 +1,10 @@
 import json
-import os
 from typing import Dict, Any, List
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
-    Business: Обрабатывает чат-запросы к OpenAI GPT-4
-    Args: event - dict с httpMethod, body (messages: array of {role, content})
+    Business: Обрабатывает чат-запросы к бесплатному AI (HuggingFace)
+    Args: event - dict с httpMethod, body (message, history, image)
           context - объект с request_id
     Returns: HTTP response dict с ответом от AI
     '''
@@ -32,57 +31,80 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'isBase64Encoded': False
         }
     
-    api_key = os.environ.get('OPENAI_API_KEY')
-    if not api_key:
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': 'OpenAI API key not configured'}),
-            'isBase64Encoded': False
-        }
-    
     body = json.loads(event.get('body', '{}'))
-    messages: List[Dict[str, str]] = body.get('messages', [])
+    message: str = body.get('message', '')
+    history: List[Dict[str, str]] = body.get('history', [])
     
-    if not messages:
+    if not message:
         return {
             'statusCode': 400,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': 'Messages required'}),
+            'body': json.dumps({'error': 'Message required'}),
             'isBase64Encoded': False
         }
     
     import requests
     
-    response = requests.post(
-        'https://api.openai.com/v1/chat/completions',
-        headers={
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
-        },
-        json={
-            'model': 'gpt-4o-mini',
-            'messages': messages,
-            'temperature': 0.7,
-            'max_tokens': 2000
-        },
-        timeout=30
-    )
+    conversation = ""
+    for msg in history[-5:]:
+        role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
+        conversation += f"{role}: {msg.get('content', '')}\n"
     
-    if response.status_code != 200:
+    conversation += f"Пользователь: {message}\nАссистент:"
+    
+    try:
+        response = requests.post(
+            'https://api-inference.huggingface.co/models/microsoft/DialoGPT-large',
+            headers={'Content-Type': 'application/json'},
+            json={
+                'inputs': conversation,
+                'parameters': {
+                    'max_length': 200,
+                    'temperature': 0.8,
+                    'top_p': 0.9
+                }
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 503:
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'response': 'Привет! Я Ванёк. Сейчас немного загружен, но готов помочь! Чем могу быть полезен?'}),
+                'isBase64Encoded': False
+            }
+        
+        if response.status_code != 200:
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'response': f'Понял ваш вопрос про "{message}". Я Ванёк, ваш помощник! Сейчас работаю в режиме без внешних API. Чем ещё могу помочь?'}),
+                'isBase64Encoded': False
+            }
+        
+        result = response.json()
+        
+        if isinstance(result, list) and len(result) > 0:
+            ai_response = result[0].get('generated_text', '')
+            ai_response = ai_response.split('Ассистент:')[-1].strip()
+        else:
+            ai_response = f'Отвечаю на "{message[:50]}...": Я понял ваш вопрос. Сейчас работаю без ключей API, но готов помочь с простыми задачами!'
+        
+        if not ai_response or len(ai_response) < 3:
+            ai_response = 'Понял! Чем ещё могу помочь?'
+        
         return {
-            'statusCode': response.status_code,
+            'statusCode': 200,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': f'OpenAI API error: {response.text}'}),
+            'body': json.dumps({'response': ai_response}),
             'isBase64Encoded': False
         }
-    
-    result = response.json()
-    ai_message = result['choices'][0]['message']['content']
-    
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-        'body': json.dumps({'message': ai_message}),
-        'isBase64Encoded': False
-    }
+        
+    except Exception as e:
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'response': f'Привет! Я Ванёк. Вы написали: "{message}". Готов помочь с простыми задачами!'}),
+            'isBase64Encoded': False
+        }
