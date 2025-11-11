@@ -17,6 +17,9 @@ interface ChatInputProps {
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveFile: () => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  isRecordingVideo: boolean;
+  onStartVideoRecording: () => void;
+  onStopVideoRecording: () => void;
 }
 
 export const ChatInput = ({
@@ -32,7 +35,10 @@ export const ChatInput = ({
   onDrop,
   onFileSelect,
   onRemoveFile,
-  fileInputRef
+  fileInputRef,
+  isRecordingVideo,
+  onStartVideoRecording,
+  onStopVideoRecording
 }: ChatInputProps) => {
   return (
     <div 
@@ -96,15 +102,24 @@ export const ChatInput = ({
           variant="outline"
           size="icon"
           className="h-[60px] w-[60px] shrink-0"
-          disabled={isLoading}
+          disabled={isLoading || isRecordingVideo}
         >
           <Icon name="Paperclip" size={24} />
+        </Button>
+        <Button
+          onClick={isRecordingVideo ? onStopVideoRecording : onStartVideoRecording}
+          variant={isRecordingVideo ? "destructive" : "outline"}
+          size="icon"
+          className="h-[60px] w-[60px] shrink-0"
+          disabled={isLoading}
+        >
+          {isRecordingVideo ? <Icon name="Square" size={24} /> : <Icon name="Video" size={24} />}
         </Button>
         <input
           ref={fileInputRef}
           type="file"
           className="hidden"
-          accept="image/*,audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.pdf,.doc,.docx,.txt"
+          accept="image/*,audio/*,video/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.mp4,.webm,.mkv,.avi,.mov"
           onChange={onFileSelect}
         />
       </div>

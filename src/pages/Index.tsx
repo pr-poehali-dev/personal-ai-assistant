@@ -33,7 +33,10 @@ const Index = () => {
     toggleVoiceMode,
     toggleSpeech,
     clearChat,
-    removeFile
+    removeFile,
+    startVideoRecording,
+    stopVideoRecording,
+    isRecordingVideo
   } = useChatLogic();
 
   return (
@@ -74,6 +77,9 @@ const Index = () => {
           onFileSelect={handleFileSelect}
           onRemoveFile={removeFile}
           fileInputRef={fileInputRef}
+          isRecordingVideo={isRecordingVideo}
+          onStartVideoRecording={startVideoRecording}
+          onStopVideoRecording={stopVideoRecording}
         />
       </Card>
 

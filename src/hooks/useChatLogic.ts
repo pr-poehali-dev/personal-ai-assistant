@@ -34,6 +34,9 @@ export const useChatLogic = () => {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     loadMessagesFromDB();
@@ -447,7 +450,82 @@ export const useChatLogic = () => {
         }
         
         if (fileToSend) {
-          if (fileToSend.type.startsWith('image/')) {
+          const isVideoFile = fileToSend.type.startsWith('video/') || fileToSend.name.match(/\.(mp4|webm|mkv|avi|mov)$/i);
+          
+          if (isVideoFile) {
+            console.log('🎬 Обрабатываю видеофайл:', fileToSend.name);
+            
+            try {
+              const videoElement = document.createElement('video');
+              videoElement.preload = 'metadata';
+              videoElement.muted = true;
+              
+              await new Promise<void>((resolve, reject) => {
+                videoElement.onloadedmetadata = async () => {
+                  console.log('📹 Видео загружено:', videoElement.duration, 'сек');
+                  
+                  videoElement.currentTime = Math.min(1, videoElement.duration / 2);
+                  
+                  videoElement.onseeked = () => {
+                    try {
+                      const canvas = document.createElement('canvas');
+                      canvas.width = videoElement.videoWidth || 640;
+                      canvas.height = videoElement.videoHeight || 480;
+                      const ctx = canvas.getContext('2d');
+                      
+                      if (ctx) {
+                        ctx.drawImage(videoElement, 0, 0);
+                        contextImage = canvas.toDataURL('image/jpeg', 0.8);
+                        console.log('✅ Кадр извлечён из видео!');
+                      }
+                      
+                      resolve();
+                    } catch (e) {
+                      console.error('Ошибка извлечения кадра:', e);
+                      reject(e);
+                    }
+                  };
+                  
+                  videoElement.onerror = () => {
+                    reject(new Error('Ошибка загрузки видео'));
+                  };
+                };
+                
+                videoElement.src = fileToSend.data;
+              });
+              
+              try {
+                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const audioData = await fetch(fileToSend.data);
+                const arrayBuffer = await audioData.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                const duration = audioBuffer.duration;
+                const channelData = audioBuffer.getChannelData(0);
+                let sum = 0;
+                for (let i = 0; i < channelData.length; i++) {
+                  sum += Math.abs(channelData[i]);
+                }
+                const avg = sum / channelData.length;
+                
+                audioAnalysis = {
+                  duration: Math.round(duration * 100) / 100,
+                  avgLevel: Math.round(avg * 100),
+                  hasAudio: true
+                };
+                
+                console.log('🎵 Аудио из видео проанализировано');
+              } catch (audioError) {
+                console.log('⚠️ Аудио из видео не удалось извлечь:', audioError);
+              }
+              
+              fileInfo = `[Пользователь прикрепил ВИДЕО: ${fileToSend.name}, длительность: ${audioAnalysis?.duration || '?'} сек] `;
+              
+            } catch (error) {
+              console.error('❌ Ошибка обработки видео:', error);
+              fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}, но обработать не удалось] `;
+            }
+          } else if (fileToSend.type.startsWith('image/')) {
             console.log('🖼️ Обрабатываю изображение');
             contextImage = fileToSend.data;
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
@@ -752,6 +830,116 @@ export const useChatLogic = () => {
     toggleVoiceMode,
     toggleSpeech,
     clearChat,
-    removeFile: () => setCurrentFile(null)
+    removeFile: () => setCurrentFile(null),
+    startVideoRecording,
+    stopVideoRecording,
+    isRecordingVideo
   };
+
+  async function startVideoRecording() {
+    try {
+      console.log('🎥 Начинаю запись видео...');
+      
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Запись видео не поддерживается в этом браузере');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user'
+        },
+        audio: true
+      });
+      
+      console.log('✅ Доступ к камере получен');
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      
+      recordedChunksRef.current = [];
+      
+      const options: MediaRecorderOptions = {
+        mimeType: 'video/webm;codecs=vp8,opus'
+      };
+      
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options.mimeType = 'video/webm';
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options.mimeType = '';
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, options);
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+          console.log('📦 Получен chunk:', event.data.size, 'bytes');
+        }
+      };
+      
+      mediaRecorder.onstop = async () => {
+        console.log('🛑 Запись остановлена, обрабатываю...');
+        
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        console.log('📹 Видео записано:', blob.size, 'bytes');
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const videoData = e.target?.result as string;
+          setCurrentFile({
+            data: videoData,
+            type: 'video/webm',
+            name: `Запись ${new Date().toLocaleTimeString('ru-RU')}.webm`
+          });
+          console.log('✅ Видео готово к отправке');
+        };
+        reader.readAsDataURL(blob);
+        
+        stream.getTracks().forEach(track => track.stop());
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+      };
+      
+      mediaRecorder.start(100);
+      mediaRecorderRef.current = mediaRecorder;
+      setIsRecordingVideo(true);
+      
+      toast({
+        title: '🎥 Запись началась',
+        description: 'Нажмите "Стоп" когда закончите',
+      });
+      
+    } catch (error: any) {
+      console.error('❌ Ошибка записи видео:', error);
+      
+      let errorMsg = 'Не удалось начать запись';
+      if (error.name === 'NotAllowedError') {
+        errorMsg = 'Разрешите доступ к камере и микрофону';
+      } else if (error.name === 'NotFoundError') {
+        errorMsg = 'Камера или микрофон не найдены';
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
+      toast({
+        title: '❌ Ошибка записи',
+        description: errorMsg,
+        variant: 'destructive'
+      });
+    }
+  }
+
+  function stopVideoRecording() {
+    if (mediaRecorderRef.current && isRecordingVideo) {
+      console.log('⏹️ Останавливаю запись...');
+      mediaRecorderRef.current.stop();
+      setIsRecordingVideo(false);
+    }
+  }
 };
