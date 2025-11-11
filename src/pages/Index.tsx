@@ -17,15 +17,18 @@ interface Message {
   imageUrl?: string;
 }
 
+import FUNC_URLS from '../../backend/func2url.json';
+
 declare global {
   interface Window {
-    puter: any;
     speechSynthesis: SpeechSynthesis;
     SpeechSynthesisUtterance: typeof SpeechSynthesisUtterance;
   }
 }
 
-const BACKEND_URL = 'https://functions.poehali.dev/d950984d-c56a-4c48-9322-c4937c26cffd';
+const BACKEND_SAVE = FUNC_URLS['save-message'];
+const BACKEND_CHAT = FUNC_URLS['ai-chat'];
+const BACKEND_IMAGE = FUNC_URLS['ai-image'];
 
 const Index = () => {
   const navigate = useNavigate();
@@ -43,35 +46,16 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [currentFile, setCurrentFile] = useState<{ data: string; type: string; name: string } | null>(null);
-  const [isPuterReady, setIsPuterReady] = useState(false);
+  const [isAiReady, setIsAiReady] = useState(true);
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
 
   useEffect(() => {
     loadMessagesFromDB();
-    
-    const initPuter = async () => {
-      try {
-        if (window.puter) {
-          setIsPuterReady(true);
-          console.log('Puter.js готов к работе');
-        }
-      } catch (error) {
-        console.log('Ошибка Puter:', error);
-        setIsPuterReady(true);
-      }
-    };
-
-    if (document.readyState === 'complete') {
-      initPuter();
-    } else {
-      window.addEventListener('load', initPuter);
-      return () => window.removeEventListener('load', initPuter);
-    }
   }, []);
 
   const loadMessagesFromDB = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}?sessionId=${sessionIdRef.current}`);
+      const response = await fetch(`${BACKEND_SAVE}?sessionId=${sessionIdRef.current}`);
       const data = await response.json();
       
       if (data.messages && data.messages.length > 0) {
@@ -88,7 +72,7 @@ const Index = () => {
       } else {
         const welcomeMessage: Message = {
           id: '1',
-          text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Могу общаться, генерировать изображения, анализировать файлы и даже видеть через камеру!',
+          text: 'Привет! Я Ванёк — твой персональный ИИ-помощник на базе GPT-4. Могу общаться, генерировать изображения через DALL-E, анализировать файлы и даже видеть через камеру!',
           sender: 'ai',
           timestamp: new Date()
         };
@@ -99,7 +83,7 @@ const Index = () => {
       console.error('Ошибка загрузки истории:', error);
       const welcomeMessage: Message = {
         id: '1',
-        text: 'Привет! Я Ванёк — твой персональный ИИ-помощник. Могу общаться, генерировать изображения, анализировать файлы и даже видеть через камеру!',
+        text: 'Привет! Я Ванёк — твой персональный ИИ-помощник на базе GPT-4. Могу общаться, генерировать изображения через DALL-E, анализировать файлы и даже видеть через камеру!',
         sender: 'ai',
         timestamp: new Date()
       };
@@ -109,7 +93,7 @@ const Index = () => {
 
   const saveMessageToDB = async (message: Message) => {
     try {
-      await fetch(BACKEND_URL, {
+      await fetch(BACKEND_SAVE, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,10 +241,6 @@ const Index = () => {
     setIsLoading(true);
 
     try {
-      if (!isPuterReady || !window.puter) {
-        throw new Error('AI не готов. Перезагрузите страницу.');
-      }
-
       const isImageRequest = messageText.toLowerCase().includes('нарисуй') || 
                             messageText.toLowerCase().includes('создай изображение') ||
                             messageText.toLowerCase().includes('сгенерируй картинку');
@@ -272,22 +252,33 @@ const Index = () => {
       if (isImageRequest) {
         const imagePrompt = messageText.replace(/нарисуй|создай изображение|сгенерируй картинку/gi, '').trim();
         
-        const imageResponse = await window.puter.ai.txt2img(imagePrompt || 'красивый пейзаж');
+        const imageResponse = await fetch(BACKEND_IMAGE, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt: imagePrompt || 'красивый пейзаж'
+          })
+        });
+
+        if (!imageResponse.ok) {
+          const errorData = await imageResponse.json();
+          throw new Error(errorData.error || 'Ошибка генерации изображения');
+        }
+
+        const imageData = await imageResponse.json();
         
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const aiResponse: Message = {
-            id: Date.now().toString(),
-            text: `Вот что получилось по запросу: "${imagePrompt}"`,
-            sender: 'ai',
-            timestamp: new Date(),
-            imageUrl: e.target?.result as string
-          };
-          setMessages(prev => [...prev, aiResponse]);
-          await saveMessageToDB(aiResponse);
-          speak(aiResponse.text);
+        const aiResponse: Message = {
+          id: Date.now().toString(),
+          text: `Вот что получилось по запросу: "${imagePrompt}"`,
+          sender: 'ai',
+          timestamp: new Date(),
+          imageUrl: imageData.image
         };
-        reader.readAsDataURL(imageResponse);
+        setMessages(prev => [...prev, aiResponse]);
+        await saveMessageToDB(aiResponse);
+        speak(aiResponse.text);
       } else {
         let systemPrompt = 'Ты — Ванёк, персональный ИИ-помощник. Стиль: краткий, уверенный, как старый друг. Отвечай по делу без воды. Можешь генерировать изображения (скажи "нарисуй..."), анализировать файлы и видеть через камеру.';
         
@@ -322,9 +313,23 @@ const Index = () => {
         conversationHistory.unshift({ role: 'system', content: systemPrompt });
         conversationHistory.push({ role: 'user', content: userPrompt });
 
-        const response = await window.puter.ai.chat(conversationHistory);
-        
-        const aiReply = response?.message?.content || response?.text || response?.toString() || 'Не удалось получить ответ';
+        const chatResponse = await fetch(BACKEND_CHAT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: conversationHistory
+          })
+        });
+
+        if (!chatResponse.ok) {
+          const errorData = await chatResponse.json();
+          throw new Error(errorData.error || 'Ошибка AI');
+        }
+
+        const chatData = await chatResponse.json();
+        const aiReply = chatData.message || 'Не удалось получить ответ';
 
         const aiResponse: Message = {
           id: (Date.now() + 1).toString(),
@@ -342,7 +347,7 @@ const Index = () => {
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: `Извини, возникла проблема: ${error.message || 'Неизвестная ошибка'}. Попробуй ещё раз или перезагрузи страницу.`,
+        text: `Извини, возникла проблема: ${error.message}. ${error.message.includes('API key') ? 'Пожалуйста, добавь OpenAI API ключ в секреты проекта.' : 'Попробуй ещё раз.'}`,
         sender: 'ai',
         timestamp: new Date()
       };
@@ -459,8 +464,8 @@ const Index = () => {
       
       <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
         <div className="absolute top-8 right-8 z-10 flex items-center gap-2">
-          <Badge variant={isPuterReady ? 'default' : 'destructive'}>
-            {isPuterReady ? 'AI готов' : 'Загрузка...'}
+          <Badge variant={isAiReady ? 'default' : 'destructive'}>
+            {isAiReady ? 'GPT-4 готов' : 'Загрузка...'}
           </Badge>
           <Button
             variant="outline"
@@ -524,7 +529,7 @@ const Index = () => {
             <h1 className="text-5xl font-bold mb-2 bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
               Ванёк
             </h1>
-            <p className="text-muted-foreground text-lg">Персональный ИИ-помощник</p>
+            <p className="text-muted-foreground text-lg">Персональный ИИ-помощник на базе GPT-4</p>
           </div>
 
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3 w-full max-w-3xl animate-slide-up">
@@ -659,13 +664,13 @@ const Index = () => {
                     }
                   }}
                   className="min-h-[60px] resize-none"
-                  disabled={isLoading || !isPuterReady}
+                  disabled={isLoading}
                 />
                 <Button
                   onClick={handleSendMessage}
                   size="icon"
                   className="h-[60px] w-[60px] shrink-0"
-                  disabled={isLoading || !isPuterReady || (!inputValue.trim() && !currentFile)}
+                  disabled={isLoading || (!inputValue.trim() && !currentFile)}
                 >
                   <Icon name="Send" size={20} />
                 </Button>

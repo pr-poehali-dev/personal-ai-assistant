@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "name": "Generate image",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "prompt": "красивый закат"
+      },
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

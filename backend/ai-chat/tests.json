@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "Chat with AI",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "messages": [
+          {"role": "system", "content": "Ты помощник"},
+          {"role": "user", "content": "Привет"}
+        ]
+      },
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}
