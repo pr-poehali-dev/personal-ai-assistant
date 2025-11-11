@@ -1,6 +1,20 @@
 import json
 from typing import Dict, Any
 
+def enhance_prompt_for_realism(user_prompt: str) -> str:
+    '''
+    Улучшает промпт пользователя для фотореалистичного результата
+    '''
+    base_quality = "RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3, photorealistic, masterpiece, best quality"
+    
+    negative_terms = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck"
+    
+    enhanced = f"{user_prompt}, {base_quality}"
+    
+    full_prompt = f"{enhanced} --negative {negative_terms}"
+    
+    return full_prompt
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
     Business: Генерирует изображения через бесплатный Stable Diffusion
@@ -32,9 +46,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
     
     body = json.loads(event.get('body', '{}'))
-    prompt: str = body.get('prompt', '')
+    user_prompt: str = body.get('prompt', '')
     
-    if not prompt:
+    if not user_prompt:
         return {
             'statusCode': 400,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
@@ -42,11 +56,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'isBase64Encoded': False
         }
     
+    enhanced_prompt = enhance_prompt_for_realism(user_prompt)
+    
     import requests
     import base64
     
     try:
-        image_url = f'https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}'
+        image_url = f'https://image.pollinations.ai/prompt/{requests.utils.quote(enhanced_prompt)}?width=1024&height=1024&nologo=true&enhance=true'
         
         return {
             'statusCode': 200,
