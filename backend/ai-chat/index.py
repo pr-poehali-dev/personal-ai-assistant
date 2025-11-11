@@ -35,6 +35,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     message: str = body.get('message', '')
     history: List[Dict[str, str]] = body.get('history', [])
     image: str = body.get('image', None)
+    file_data: str = body.get('file', None)
+    file_name: str = body.get('fileName', '')
+    file_type: str = body.get('fileType', '')
     
     if not message:
         return {
@@ -60,13 +63,69 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     try:
         has_file_mention = '[Пользователь прикрепил' in message
+        audio_analysis = None
+        
+        # Анализируем аудио если прикрепили
+        if file_data and file_type.startswith('audio/'):
+            try:
+                import base64
+                import io
+                import wave
+                import struct
+                
+                # Декодируем base64
+                audio_bytes = base64.b64decode(file_data.split(',')[1] if ',' in file_data else file_data)
+                
+                # Базовый анализ WAV
+                if file_type == 'audio/wav' or file_name.endswith('.wav'):
+                    wav_io = io.BytesIO(audio_bytes)
+                    with wave.open(wav_io, 'rb') as wav:
+                        frames = wav.getnframes()
+                        rate = wav.getframerate()
+                        channels = wav.getnchannels()
+                        sampwidth = wav.getsampwidth()
+                        duration = frames / float(rate)
+                        
+                        # Читаем сэмплы для анализа громкости
+                        wav_io.seek(0)
+                        wav.rewind()
+                        samples = wav.readframes(frames)
+                        
+                        # Анализ пиковых значений
+                        if sampwidth == 2:  # 16-bit
+                            sample_array = struct.unpack(f'{frames * channels}h', samples)
+                            max_sample = max(abs(s) for s in sample_array)
+                            avg_sample = sum(abs(s) for s in sample_array) / len(sample_array)
+                            peak_db = 20 * (max_sample / 32768) if max_sample > 0 else -96
+                            avg_db = 20 * (avg_sample / 32768) if avg_sample > 0 else -96
+                        else:
+                            peak_db = avg_db = 0
+                        
+                        audio_analysis = {
+                            'duration': round(duration, 2),
+                            'sample_rate': rate,
+                            'channels': 'stereo' if channels == 2 else 'mono',
+                            'bit_depth': sampwidth * 8,
+                            'peak_db': round(peak_db, 2),
+                            'avg_db': round(avg_db, 2)
+                        }
+                else:
+                    # Для других форматов - базовая инфа
+                    audio_analysis = {
+                        'format': file_type,
+                        'size_kb': round(len(audio_bytes) / 1024, 2)
+                    }
+            except Exception as e:
+                audio_analysis = {'error': f'Не удалось проанализировать: {str(e)}'}
         
         system_instructions = "Ты Ванёк - дружелюбный русскоязычный AI-помощник. Отвечай кратко и по делу."
         
         if has_file_mention and image:
-            system_instructions += "\n\n⚠️ КРИТИЧЕСКИ ВАЖНО: Файл УЖЕ ЗАГРУЖЕН! Ты его ВИДИШЬ прямо сейчас. У тебя ЕСТЬ доступ к изображению. НИКОГДА не проси загрузить файл снова или дать ссылку. Анализируй то что ВИДИШЬ и отвечай конкретно на вопрос пользователя."
+            system_instructions += "\n\n⚠️ КРИТИЧЕСКИ ВАЖНО: Изображение УЖЕ ЗАГРУЖЕНО! Ты его ВИДИШЬ. Анализируй и отвечай."
+        elif has_file_mention and audio_analysis:
+            system_instructions += f"\n\n⚠️ АУДИО ФАЙЛ УЖЕ ПРОАНАЛИЗИРОВАН!\n\nТехнические данные аудио:\n{json.dumps(audio_analysis, ensure_ascii=False, indent=2)}\n\nТеперь дай профессиональную оценку на основе этих параметров. НЕ проси файл снова - все данные у тебя есть!"
         elif has_file_mention:
-            system_instructions += "\n\n⚠️ ВАЖНОЕ УТОЧНЕНИЕ:\n- Пользователь УЖЕ ПРИКРЕПИЛ файл в систему\n- Ты видишь его название и тип\n- У тебя НЕТ технической возможности анализировать аудио/видео/документы (только изображения)\n- НИКОГДА не проси пользователя загрузить файл снова\n- СРАЗУ объясни что ты можешь: оценить по названию, дать общую информацию о формате, посоветовать инструменты для анализа\n- Будь честен что не можешь анализировать содержимое неизображений, но помоги чем можешь"
+            system_instructions += "\n\n⚠️ Файл прикреплён, но я могу анализировать только изображения и аудио. Помогу чем смогу!"
         
         prompt = f"{system_instructions}\n\n"
         

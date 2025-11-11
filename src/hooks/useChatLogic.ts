@@ -282,6 +282,7 @@ export const useChatLogic = () => {
       } else {
         let contextImage = null;
         let fileInfo = '';
+        let fileData = null;
 
         if (isCameraRequest && isCameraOn) {
           contextImage = captureFrame();
@@ -291,6 +292,7 @@ export const useChatLogic = () => {
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
           } else {
             fileInfo = `[Пользователь прикрепил файл: ${fileToSend.name}, тип: ${fileToSend.type}] `;
+            fileData = fileToSend.data;
           }
         }
 
@@ -302,6 +304,9 @@ export const useChatLogic = () => {
           body: JSON.stringify({
             message: fullMessage,
             image: contextImage,
+            file: fileData,
+            fileName: fileToSend?.name,
+            fileType: fileToSend?.type,
             history: messages.slice(-10).map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'assistant',
               content: msg.text
