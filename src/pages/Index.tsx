@@ -16,7 +16,11 @@ interface Message {
   fileName?: string;
 }
 
-const CHAT_API_URL = 'https://functions.poehali.dev/af32e36f-93f6-4b66-925a-8854b921781c';
+declare global {
+  interface Window {
+    puter: any;
+  }
+}
 
 const Index = () => {
   const navigate = useNavigate();
@@ -95,37 +99,57 @@ const Index = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch(CHAT_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: messageText,
-          file: fileToSend?.data,
-          fileType: fileToSend?.type,
-          history: messages.slice(-10).map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'assistant',
-            content: msg.text
-          }))
-        })
+      if (!window.puter) {
+        throw new Error('Puter SDK не загружен');
+      }
+
+      const conversationHistory = messages.slice(-10).map(msg => ({
+        role: msg.sender === 'user' ? 'user' : 'assistant',
+        content: msg.text
+      }));
+
+      conversationHistory.push({
+        role: 'system',
+        content: 'Ты — Ванёк, персональный ИИ-помощник. Твой стиль общения: краткий, уверенный, как у старого друга. Отвечай по делу, без лишней воды. Ты можешь создавать изображения, генерировать код, анализировать файлы и помогать с любыми задачами.'
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Ошибка при обработке запроса');
+      let userPrompt = messageText;
+      
+      if (fileToSend) {
+        if (fileToSend.type.startsWith('image/')) {
+          userPrompt = `${messageText}\n\n[Изображение: ${fileToSend.name}]`;
+        } else {
+          try {
+            const fileContent = atob(fileToSend.data);
+            userPrompt = `${messageText}\n\nСодержимое файла ${fileToSend.name}:\n${fileContent.substring(0, 4000)}`;
+          } catch (e) {
+            userPrompt = `${messageText}\n\n[Файл: ${fileToSend.name} - не удалось прочитать]`;
+          }
+        }
       }
+
+      conversationHistory.push({
+        role: 'user',
+        content: userPrompt
+      });
+
+      const response = await window.puter.ai.chat({
+        messages: conversationHistory,
+        model: 'gpt-4o-mini'
+      });
+
+      const aiReply = response.message?.content || response.text || 'Не удалось получить ответ';
 
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: data.reply,
+        text: aiReply,
         sender: 'ai',
         timestamp: new Date()
       };
 
       setMessages(prev => [...prev, aiResponse]);
     } catch (error: any) {
+      console.error('AI Error:', error);
       toast({
         title: 'Ошибка',
         description: error.message || 'Не удалось получить ответ от ИИ',
@@ -134,7 +158,7 @@ const Index = () => {
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: 'Извини, возникла проблема. Убедись, что API ключ OpenAI добавлен в настройках.',
+        text: 'Извини, возникла проблема при обработке запроса. Попробуй ещё раз.',
         sender: 'ai',
         timestamp: new Date()
       };
