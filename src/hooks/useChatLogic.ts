@@ -422,9 +422,14 @@ export const useChatLogic = () => {
         let fileInfo = '';
         let audioAnalysis = null;
 
-        if (isCameraRequest && isCameraOn) {
+        if (isCameraOn) {
           contextImage = captureFrame();
-        } else if (fileToSend) {
+          if (contextImage && !fileToSend) {
+            fileInfo = '[Видео с камеры] ';
+          }
+        }
+        
+        if (fileToSend) {
           if (fileToSend.type.startsWith('image/')) {
             contextImage = fileToSend.data;
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
