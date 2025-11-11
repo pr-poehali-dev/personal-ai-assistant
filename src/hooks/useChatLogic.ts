@@ -31,6 +31,9 @@ export const useChatLogic = () => {
   const [currentFile, setCurrentFile] = useState<{ data: string; type: string; name: string } | null>(null);
   const [isAiReady, setIsAiReady] = useState(true);
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     loadMessagesFromDB();
@@ -55,7 +58,7 @@ export const useChatLogic = () => {
       } else {
         const welcomeMessage: Message = {
           id: '1',
-          text: 'Привет! Я Ванёк — персональный AI-помощник, которого создал для тебя Иван Верещагин.\n\n✅ Что умею:\n• Общаться и помогать по любым вопросам\n• Анализировать изображения\n• Анализировать аудио: качество записи, баланс частот, тип музыки\n• Распознавать речь и вокал в аудиофайлах (если чётко слышно)\n• Оценивать содержание песен по распознанному тексту\n• Генерировать картинки (напиши "нарисуй [описание]")\n• Видеть через камеру (включи кнопку камеры)\n\n❌ Чего НЕ умею:\n• Определять исполнителя или название песни\n• Предсказывать будущее\n• Управлять устройствами\n• Помнить прошлые беседы после закрытия\n\n💡 Загрузи аудиофайл — попробую распознать текст и оценить содержание!',
+          text: 'Привет! Я Ванёк — персональный AI-помощник, которого создал для тебя Иван Верещагин.\n\n✅ Что умею:\n• Общаться и помогать по любым вопросам\n• Анализировать изображения\n• Видеть через камеру и слышать тебя в реальном времени\n• Автоматически отвечать на твои вопросы через камеру (просто говори!)\n• Анализировать аудио: качество записи, баланс частот, тип музыки\n• Распознавать речь и вокал в аудиофайлах\n• Оценивать содержание песен и твой вокал если споёшь на камеру\n• Генерировать картинки (напиши "нарисуй [описание]")\n\n❌ Чего НЕ умею:\n• Определять исполнителя или название песни\n• Предсказывать будущее\n• Управлять устройствами\n• Помнить прошлые беседы после закрытия\n\n💡 Включи камеру — увижу и услышу тебя, буду отвечать на вопросы автоматически!',
           sender: 'ai',
           timestamp: new Date()
         };
@@ -151,8 +154,10 @@ export const useChatLogic = () => {
           height: { ideal: 480 },
           facingMode: 'user'
         },
-        audio: false 
+        audio: true
       });
+      
+      audioStreamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -160,9 +165,10 @@ export const useChatLogic = () => {
           try {
             await videoRef.current?.play();
             setIsCameraOn(true);
+            startVoiceRecognition();
             toast({
               title: 'Камера включена',
-              description: 'Теперь я вижу тебя!',
+              description: 'Теперь я вижу и слышу тебя!',
             });
           } catch (e) {
             console.error('Ошибка воспроизведения:', e);
@@ -191,11 +197,18 @@ export const useChatLogic = () => {
   };
 
   const stopCamera = () => {
+    stopVoiceRecognition();
+    
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
       setIsCameraOn(false);
+    }
+    
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach(track => track.stop());
+      audioStreamRef.current = null;
     }
   };
 
@@ -204,6 +217,130 @@ export const useChatLogic = () => {
       stopCamera();
     } else {
       startCamera();
+    }
+  };
+
+  const startVoiceRecognition = () => {
+    try {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        console.log('Speech Recognition не поддерживается');
+        return;
+      }
+      
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'ru-RU';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      
+      recognition.onstart = () => {
+        setIsListening(true);
+        console.log('Распознавание речи запущено');
+      };
+      
+      recognition.onresult = async (event: any) => {
+        const transcript = event.results[event.results.length - 1][0].transcript;
+        console.log('Распознано:', transcript);
+        
+        if (transcript && transcript.trim().length > 3) {
+          setInputValue(transcript);
+          
+          setTimeout(async () => {
+            const frame = captureFrame();
+            if (frame) {
+              const userMessage: Message = {
+                id: Date.now().toString(),
+                text: transcript,
+                sender: 'user',
+                timestamp: new Date()
+              };
+              
+              setMessages(prev => [...prev, userMessage]);
+              await saveMessageToDB(userMessage);
+              setInputValue('');
+              setIsLoading(true);
+              
+              try {
+                const chatResponse = await fetch(BACKEND_CHAT, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    message: transcript,
+                    image: frame,
+                    history: messages.slice(-10).map(msg => ({
+                      role: msg.sender === 'user' ? 'user' : 'assistant',
+                      content: msg.text
+                    }))
+                  })
+                });
+                
+                const chatData = await chatResponse.json();
+                
+                if (!chatData.error) {
+                  const aiMessage: Message = {
+                    id: (Date.now() + 1).toString(),
+                    text: chatData.response,
+                    sender: 'ai',
+                    timestamp: new Date()
+                  };
+                  
+                  setMessages(prev => [...prev, aiMessage]);
+                  await saveMessageToDB(aiMessage);
+                  speak(chatData.response);
+                }
+              } catch (error) {
+                console.error('Ошибка отправки:', error);
+              } finally {
+                setIsLoading(false);
+              }
+            }
+          }, 500);
+        }
+      };
+      
+      recognition.onerror = (event: any) => {
+        console.log('Ошибка распознавания:', event.error);
+        if (event.error !== 'no-speech') {
+          setIsListening(false);
+          setTimeout(() => {
+            if (isCameraOn && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (e) {
+                console.log('Распознавание уже запущено');
+              }
+            }
+          }, 1000);
+        }
+      };
+      
+      recognition.onend = () => {
+        console.log('Распознавание остановлено');
+        setIsListening(false);
+        if (isCameraOn) {
+          setTimeout(() => {
+            try {
+              recognition.start();
+            } catch (e) {
+              console.log('Не удалось перезапустить распознавание');
+            }
+          }, 500);
+        }
+      };
+      
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (error) {
+      console.error('Ошибка запуска распознавания:', error);
+    }
+  };
+  
+  const stopVoiceRecognition = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setIsListening(false);
     }
   };
 
@@ -577,6 +714,7 @@ export const useChatLogic = () => {
     currentFile,
     isAiReady,
     isSpeechEnabled,
+    isListening,
     handleSendMessage,
     handleFileSelect,
     handleDragEnter,

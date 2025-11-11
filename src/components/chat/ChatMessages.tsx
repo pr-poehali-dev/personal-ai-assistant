@@ -16,13 +16,15 @@ interface ChatMessagesProps {
   isLoading: boolean;
   videoRef: React.RefObject<HTMLVideoElement>;
   isCameraOn: boolean;
+  isListening?: boolean;
 }
 
 export const ChatMessages = ({ 
   messages, 
   isLoading, 
   videoRef, 
-  isCameraOn 
+  isCameraOn,
+  isListening = false
 }: ChatMessagesProps) => {
   return (
     <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4">
@@ -74,9 +76,17 @@ export const ChatMessages = ({
       )}
       {isCameraOn && (
         <Card className="p-4 mb-4 border-green-500 border-2">
-          <div className="flex items-center gap-2 mb-2 text-green-600">
-            <Icon name="Video" size={16} />
-            <span className="text-sm font-medium">Камера активна</span>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 text-green-600">
+              <Icon name="Video" size={16} />
+              <span className="text-sm font-medium">Камера активна</span>
+            </div>
+            {isListening && (
+              <div className="flex items-center gap-2 text-red-600 animate-pulse">
+                <Icon name="Mic" size={16} />
+                <span className="text-sm font-medium">Слушаю...</span>
+              </div>
+            )}
           </div>
           <video
             ref={videoRef}

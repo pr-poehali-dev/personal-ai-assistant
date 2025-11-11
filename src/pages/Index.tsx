@@ -21,6 +21,7 @@ const Index = () => {
     isDragging,
     currentFile,
     isSpeechEnabled,
+    isListening,
     handleSendMessage,
     handleFileSelect,
     handleDragEnter,
@@ -56,6 +57,7 @@ const Index = () => {
           isLoading={isLoading}
           videoRef={videoRef}
           isCameraOn={isCameraOn}
+          isListening={isListening}
         />
 
         <ChatInput
