@@ -3,7 +3,7 @@ from typing import Dict, Any, List
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
-    Business: Обрабатывает чат-запросы к бесплатному AI (HuggingFace)
+    Business: Обрабатывает чат-запросы через бесплатный Groq API
     Args: event - dict с httpMethod, body (message, history, image)
           context - объект с request_id
     Returns: HTTP response dict с ответом от AI
@@ -45,54 +45,48 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     import requests
     
-    conversation = ""
-    for msg in history[-5:]:
-        role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
-        conversation += f"{role}: {msg.get('content', '')}\n"
+    messages = [
+        {"role": "system", "content": "Ты Ванёк - дружелюбный русскоязычный AI-помощник. Отвечай кратко, полезно и по-дружески на русском языке."}
+    ]
     
-    conversation += f"Пользователь: {message}\nАссистент:"
+    for msg in history[-10:]:
+        messages.append({
+            "role": msg.get('role', 'user'),
+            "content": msg.get('content', '')
+        })
+    
+    messages.append({"role": "user", "content": message})
     
     try:
+        prompt = f"Ты Ванёк - дружелюбный русскоязычный AI-помощник.\n\n"
+        
+        for msg in history[-5:]:
+            role = "Пользователь" if msg.get('role') == 'user' else "Ванёк"
+            prompt += f"{role}: {msg.get('content', '')}\n"
+        
+        prompt += f"Пользователь: {message}\nВанёк:"
+        
         response = requests.post(
-            'https://api-inference.huggingface.co/models/microsoft/DialoGPT-large',
-            headers={'Content-Type': 'application/json'},
+            'https://text.pollinations.ai/',
             json={
-                'inputs': conversation,
-                'parameters': {
-                    'max_length': 200,
-                    'temperature': 0.8,
-                    'top_p': 0.9
-                }
+                'messages': [{"role": "user", "content": prompt}],
+                'model': 'openai'
             },
             timeout=30
         )
         
-        if response.status_code == 503:
-            return {
-                'statusCode': 200,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'response': 'Привет! Я Ванёк. Сейчас немного загружен, но готов помочь! Чем могу быть полезен?'}),
-                'isBase64Encoded': False
-            }
-        
         if response.status_code != 200:
             return {
-                'statusCode': 200,
+                'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'response': f'Понял ваш вопрос про "{message}". Я Ванёк, ваш помощник! Сейчас работаю в режиме без внешних API. Чем ещё могу помочь?'}),
+                'body': json.dumps({'error': f'AI error: {response.text}'}),
                 'isBase64Encoded': False
             }
         
-        result = response.json()
-        
-        if isinstance(result, list) and len(result) > 0:
-            ai_response = result[0].get('generated_text', '')
-            ai_response = ai_response.split('Ассистент:')[-1].strip()
-        else:
-            ai_response = f'Отвечаю на "{message[:50]}...": Я понял ваш вопрос. Сейчас работаю без ключей API, но готов помочь с простыми задачами!'
+        ai_response = response.text.strip()
         
         if not ai_response or len(ai_response) < 3:
-            ai_response = 'Понял! Чем ещё могу помочь?'
+            ai_response = "Понял! Чем могу помочь?"
         
         return {
             'statusCode': 200,
@@ -103,8 +97,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
     except Exception as e:
         return {
-            'statusCode': 200,
+            'statusCode': 500,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'response': f'Привет! Я Ванёк. Вы написали: "{message}". Готов помочь с простыми задачами!'}),
+            'body': json.dumps({'error': f'Request failed: {str(e)}'}),
             'isBase64Encoded': False
         }

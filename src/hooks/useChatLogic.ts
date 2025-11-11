@@ -141,6 +141,10 @@ export const useChatLogic = () => {
 
   const startCamera = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Камера не поддерживается в этом браузере');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           width: { ideal: 640 },
@@ -149,21 +153,38 @@ export const useChatLogic = () => {
         },
         audio: false 
       });
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setIsCameraOn(true);
-        toast({
-          title: 'Камера включена',
-          description: 'Теперь я вижу тебя!',
-        });
+        videoRef.current.onloadedmetadata = async () => {
+          try {
+            await videoRef.current?.play();
+            setIsCameraOn(true);
+            toast({
+              title: 'Камера включена',
+              description: 'Теперь я вижу тебя!',
+            });
+          } catch (e) {
+            console.error('Ошибка воспроизведения:', e);
+          }
+        };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Ошибка камеры:', error);
       setIsCameraOn(false);
+      
+      let errorMsg = 'Не удалось получить доступ к камере';
+      if (error.name === 'NotAllowedError') {
+        errorMsg = 'Вы запретили доступ к камере. Разрешите в настройках браузера';
+      } else if (error.name === 'NotFoundError') {
+        errorMsg = 'Камера не найдена на устройстве';
+      } else if (error.name === 'NotReadableError') {
+        errorMsg = 'Камера уже используется другим приложением';
+      }
+      
       toast({
         title: 'Камера недоступна',
-        description: 'Разрешите доступ к камере в настройках браузера',
+        description: errorMsg,
         variant: 'destructive'
       });
     }
