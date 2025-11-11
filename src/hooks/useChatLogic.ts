@@ -144,6 +144,16 @@ export const useChatLogic = () => {
 
   const startCamera = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Камера не поддерживается в этом браузере');
+      }
+
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        throw new Error('Камера работает только на HTTPS');
+      }
+
+      console.log('Запрашиваю доступ к камере...');
+      
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           width: { ideal: 640 },
@@ -153,6 +163,7 @@ export const useChatLogic = () => {
         audio: true
       });
       
+      console.log('✅ Доступ получен!', stream.getTracks());
       audioStreamRef.current = stream;
       
       if (videoRef.current) {
@@ -160,6 +171,7 @@ export const useChatLogic = () => {
         videoRef.current.onloadedmetadata = async () => {
           try {
             await videoRef.current?.play();
+            console.log('✅ Видео запущено');
             setIsCameraOn(true);
             startVoiceRecognition();
             toast({
@@ -167,25 +179,30 @@ export const useChatLogic = () => {
               description: 'Видео и аудио готовы!',
             });
           } catch (e) {
-            console.error('Ошибка:', e);
+            console.error('Ошибка воспроизведения:', e);
           }
         };
       }
     } catch (error: any) {
-      console.error('Ошибка камеры:', error);
+      console.error('❌ ПОЛНАЯ ошибка камеры:', error);
+      console.error('Тип ошибки:', error.name);
+      console.error('Сообщение:', error.message);
       setIsCameraOn(false);
       
-      let errorMsg = 'Не удалось включить камеру';
+      let errorMsg = error.message || 'Не удалось включить камеру';
+      
       if (error.name === 'NotAllowedError') {
-        errorMsg = 'Разрешите доступ к камере в настройках браузера';
+        errorMsg = 'Нажмите "Разрешить" в браузере для доступа к камере';
       } else if (error.name === 'NotFoundError') {
-        errorMsg = 'Камера не найдена';
+        errorMsg = 'Камера не найдена на устройстве';
       } else if (error.name === 'NotReadableError') {
-        errorMsg = 'Камера занята другим приложением';
+        errorMsg = 'Камера используется другим приложением';
+      } else if (error.message) {
+        errorMsg = error.message;
       }
       
       toast({
-        title: 'Камера недоступна',
+        title: '❌ Камера недоступна',
         description: errorMsg,
         variant: 'destructive'
       });
