@@ -447,7 +447,106 @@ export const useChatLogic = () => {
         }
         
         if (fileToSend) {
-          if (fileToSend.type.startsWith('image/')) {
+          // ВАЖНО: Проверяем видео ПЕРВЫМ (по расширению и типу)
+          const isVideoFile = fileToSend.type.startsWith('video/') || 
+                              fileToSend.name.match(/\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i);
+          
+          if (isVideoFile) {
+            // Обработка видео - извлекаем кадр для анализа
+            try {
+              console.log('🎬 Обработка видео:', fileToSend.name, fileToSend.type);
+              
+              const videoElement = document.createElement('video');
+              videoElement.preload = 'metadata';
+              videoElement.muted = true;
+              videoElement.crossOrigin = 'anonymous';
+              
+              // Добавляем video элемент в DOM (скрыто) для лучшей совместимости
+              videoElement.style.position = 'absolute';
+              videoElement.style.top = '-9999px';
+              document.body.appendChild(videoElement);
+              
+              await new Promise<void>((resolve, reject) => {
+                let resolved = false;
+                
+                videoElement.onloadedmetadata = () => {
+                  console.log('✅ Видео метаданные загружены:', {
+                    duration: videoElement.duration,
+                    width: videoElement.videoWidth,
+                    height: videoElement.videoHeight
+                  });
+                  
+                  // Берём кадр из середины видео
+                  const seekTime = Math.max(0, Math.min(2, videoElement.duration / 2));
+                  videoElement.currentTime = seekTime;
+                };
+                
+                videoElement.onseeked = () => {
+                  console.log('✅ Перемотка выполнена, извлекаю кадр...');
+                  
+                  try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = videoElement.videoWidth || 640;
+                    canvas.height = videoElement.videoHeight || 480;
+                    const ctx = canvas.getContext('2d');
+                    
+                    if (ctx && canvas.width > 0 && canvas.height > 0) {
+                      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                      contextImage = canvas.toDataURL('image/jpeg', 0.8);
+                      fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}, длительность: ${Math.round(videoElement.duration)}с, разрешение: ${canvas.width}x${canvas.height}] `;
+                      console.log('✅ Кадр извлечён успешно!');
+                    } else {
+                      console.error('❌ Не удалось создать canvas');
+                      fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}] `;
+                    }
+                  } catch (canvasError) {
+                    console.error('❌ Ошибка canvas:', canvasError);
+                    fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}] `;
+                  }
+                  
+                  document.body.removeChild(videoElement);
+                  if (!resolved) {
+                    resolved = true;
+                    resolve();
+                  }
+                };
+                
+                videoElement.onerror = (e) => {
+                  console.error('❌ Ошибка загрузки видео:', e);
+                  document.body.removeChild(videoElement);
+                  if (!resolved) {
+                    resolved = true;
+                    reject(new Error('Не удалось загрузить видео'));
+                  }
+                };
+                
+                // Устанавливаем источник после всех обработчиков
+                videoElement.src = fileToSend.data;
+                
+                // Таймаут на случай зависания
+                setTimeout(() => {
+                  if (!resolved) {
+                    resolved = true;
+                    console.error('❌ Таймаут обработки видео');
+                    if (document.body.contains(videoElement)) {
+                      document.body.removeChild(videoElement);
+                    }
+                    reject(new Error('Таймаут обработки видео'));
+                  }
+                }, 10000);
+              });
+              
+            } catch (e) {
+              console.error('❌ ПОЛНАЯ ошибка обработки видео:', e);
+              fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}, формат может не поддерживаться браузером] `;
+              
+              toast({
+                title: '⚠️ Проблема с видео',
+                description: 'Не все форматы видео поддерживаются. Попробуйте MP4 или WebM.',
+                variant: 'destructive'
+              });
+            }
+          } else if (fileToSend.type.startsWith('image/')) {
             contextImage = fileToSend.data;
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
           } else if (fileToSend.type.startsWith('audio/')) {
@@ -580,102 +679,6 @@ export const useChatLogic = () => {
               
             } catch (e) {
               fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}, анализ не удался] `;
-            }
-          } else if (fileToSend.type.startsWith('video/') || 
-                     fileToSend.name.match(/\.(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i)) {
-            // Обработка видео - извлекаем несколько кадров для лучшего анализа
-            try {
-              console.log('🎬 Обработка видео:', fileToSend.name, fileToSend.type);
-              
-              const videoElement = document.createElement('video');
-              videoElement.preload = 'metadata';
-              videoElement.muted = true;
-              videoElement.crossOrigin = 'anonymous';
-              
-              // Добавляем video элемент в DOM (скрыто) для лучшей совместимости
-              videoElement.style.position = 'absolute';
-              videoElement.style.top = '-9999px';
-              document.body.appendChild(videoElement);
-              
-              await new Promise<void>((resolve, reject) => {
-                let resolved = false;
-                
-                videoElement.onloadedmetadata = () => {
-                  console.log('✅ Видео метаданные загружены:', {
-                    duration: videoElement.duration,
-                    width: videoElement.videoWidth,
-                    height: videoElement.videoHeight
-                  });
-                  
-                  // Берём кадр из середины видео
-                  const seekTime = Math.max(0, Math.min(2, videoElement.duration / 2));
-                  videoElement.currentTime = seekTime;
-                };
-                
-                videoElement.onseeked = () => {
-                  console.log('✅ Перемотка выполнена, извлекаю кадр...');
-                  
-                  try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = videoElement.videoWidth || 640;
-                    canvas.height = videoElement.videoHeight || 480;
-                    const ctx = canvas.getContext('2d');
-                    
-                    if (ctx && canvas.width > 0 && canvas.height > 0) {
-                      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                      contextImage = canvas.toDataURL('image/jpeg', 0.8);
-                      fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}, длительность: ${Math.round(videoElement.duration)}с, разрешение: ${canvas.width}x${canvas.height}] `;
-                      console.log('✅ Кадр извлечён успешно!');
-                    } else {
-                      console.error('❌ Не удалось создать canvas');
-                      fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}] `;
-                    }
-                  } catch (canvasError) {
-                    console.error('❌ Ошибка canvas:', canvasError);
-                    fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}] `;
-                  }
-                  
-                  document.body.removeChild(videoElement);
-                  if (!resolved) {
-                    resolved = true;
-                    resolve();
-                  }
-                };
-                
-                videoElement.onerror = (e) => {
-                  console.error('❌ Ошибка загрузки видео:', e);
-                  document.body.removeChild(videoElement);
-                  if (!resolved) {
-                    resolved = true;
-                    reject(new Error('Не удалось загрузить видео'));
-                  }
-                };
-                
-                // Устанавливаем источник после всех обработчиков
-                videoElement.src = fileToSend.data;
-                
-                // Таймаут на случай зависания
-                setTimeout(() => {
-                  if (!resolved) {
-                    resolved = true;
-                    console.error('❌ Таймаут обработки видео');
-                    if (document.body.contains(videoElement)) {
-                      document.body.removeChild(videoElement);
-                    }
-                    reject(new Error('Таймаут обработки видео'));
-                  }
-                }, 10000);
-              });
-              
-            } catch (e) {
-              console.error('❌ ПОЛНАЯ ошибка обработки видео:', e);
-              fileInfo = `[Пользователь прикрепил видео: ${fileToSend.name}, формат может не поддерживаться браузером] `;
-              
-              toast({
-                title: '⚠️ Проблема с видео',
-                description: 'Не все форматы видео поддерживаются. Попробуйте MP4 или WebM.',
-                variant: 'destructive'
-              });
             }
           } else {
             fileInfo = `[Пользователь прикрепил файл: ${fileToSend.name}, тип: ${fileToSend.type}] `;
