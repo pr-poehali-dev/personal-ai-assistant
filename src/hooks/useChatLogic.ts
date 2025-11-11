@@ -144,10 +144,13 @@ export const useChatLogic = () => {
 
   const startCamera = async () => {
     try {
+      console.log('🎥 Запуск камеры...');
+      
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Камера не поддерживается в этом браузере');
       }
 
+      console.log('📹 Запрос доступа к камере и микрофону...');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           width: { ideal: 640 },
@@ -157,13 +160,17 @@ export const useChatLogic = () => {
         audio: true
       });
       
+      console.log('✅ Доступ получен, треки:', stream.getTracks().map(t => `${t.kind}: ${t.label}`));
       audioStreamRef.current = stream;
       
       if (videoRef.current) {
+        console.log('🎬 Привязка потока к видео элементу...');
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = async () => {
           try {
+            console.log('▶️ Запуск видео...');
             await videoRef.current?.play();
+            console.log('✅ Видео запущено!');
             setIsCameraOn(true);
             startVoiceRecognition();
             toast({
@@ -171,12 +178,14 @@ export const useChatLogic = () => {
               description: 'Теперь я вижу и слышу тебя!',
             });
           } catch (e) {
-            console.error('Ошибка воспроизведения:', e);
+            console.error('❌ Ошибка воспроизведения:', e);
           }
         };
+      } else {
+        console.error('❌ videoRef.current не существует!');
       }
     } catch (error: any) {
-      console.error('Ошибка камеры:', error);
+      console.error('❌ Ошибка камеры:', error);
       setIsCameraOn(false);
       
       let errorMsg = 'Не удалось получить доступ к камере';
@@ -222,9 +231,11 @@ export const useChatLogic = () => {
 
   const startVoiceRecognition = () => {
     try {
+      console.log('🎤 Инициализация распознавания речи...');
+      
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        console.log('Speech Recognition не поддерживается');
+        console.log('❌ Speech Recognition не поддерживается');
         return;
       }
       
@@ -236,7 +247,7 @@ export const useChatLogic = () => {
       
       recognition.onstart = () => {
         setIsListening(true);
-        console.log('Распознавание речи запущено');
+        console.log('✅ Распознавание речи запущено');
       };
       
       recognition.onresult = async (event: any) => {
