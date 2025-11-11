@@ -32,6 +32,7 @@ export const useChatLogic = () => {
   const [isAiReady, setIsAiReady] = useState(true);
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
   const recognitionRef = useRef<any>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
 
@@ -172,6 +173,7 @@ export const useChatLogic = () => {
             await videoRef.current?.play();
             console.log('✅ Видео запущено!');
             setIsCameraOn(true);
+            setShowPermissionDialog(false);
             startVoiceRecognition();
             toast({
               title: 'Камера включена',
@@ -187,6 +189,7 @@ export const useChatLogic = () => {
     } catch (error: any) {
       console.error('❌ Ошибка камеры:', error);
       setIsCameraOn(false);
+      setShowPermissionDialog(true);
       
       let errorMsg = 'Не удалось получить доступ к камере';
       if (error.name === 'NotAllowedError') {
@@ -225,6 +228,7 @@ export const useChatLogic = () => {
     if (isCameraOn) {
       stopCamera();
     } else {
+      setShowPermissionDialog(true);
       startCamera();
     }
   };
@@ -713,6 +717,8 @@ export const useChatLogic = () => {
   return {
     videoRef,
     fileInputRef,
+    showPermissionDialog,
+    setShowPermissionDialog,
     canvasRef,
     messages,
     inputValue,

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { ChatMessages } from '@/components/chat/ChatMessages';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { CameraPermissionDialog } from '@/components/chat/CameraPermissionDialog';
 import { useChatLogic } from '@/hooks/useChatLogic';
 
 const Index = () => {
@@ -22,6 +23,8 @@ const Index = () => {
     currentFile,
     isSpeechEnabled,
     isListening,
+    showPermissionDialog,
+    setShowPermissionDialog,
     handleSendMessage,
     handleFileSelect,
     handleDragEnter,
@@ -76,6 +79,12 @@ const Index = () => {
           fileInputRef={fileInputRef}
         />
       </Card>
+
+      <CameraPermissionDialog
+        isOpen={showPermissionDialog}
+        onClose={() => setShowPermissionDialog(false)}
+        onRetry={toggleCamera}
+      />
 
       <canvas ref={canvasRef} className="hidden" />
     </div>
