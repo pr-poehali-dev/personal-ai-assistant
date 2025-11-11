@@ -1,4 +1,5 @@
 {
+  "audio-transcribe": "https://functions.poehali.dev/f911fb34-16ff-4f32-8b51-2cbedfc0fd00",
   "ai-chat": "https://functions.poehali.dev/78d6a15a-ecff-48a9-b21f-456f1039fee9",
   "ai-image": "https://functions.poehali.dev/0e359948-2916-461c-8009-51f5fd17b255",
   "save-message": "https://functions.poehali.dev/d950984d-c56a-4c48-9322-c4937c26cffd"
