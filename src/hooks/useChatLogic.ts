@@ -281,18 +281,26 @@ export const useChatLogic = () => {
         speak('Изображение готово!');
       } else {
         let contextImage = null;
+        let fileInfo = '';
 
         if (isCameraRequest && isCameraOn) {
           contextImage = captureFrame();
-        } else if (fileToSend && fileToSend.type.startsWith('image/')) {
-          contextImage = fileToSend.data;
+        } else if (fileToSend) {
+          if (fileToSend.type.startsWith('image/')) {
+            contextImage = fileToSend.data;
+            fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
+          } else {
+            fileInfo = `[Пользователь прикрепил файл: ${fileToSend.name}, тип: ${fileToSend.type}] `;
+          }
         }
+
+        const fullMessage = fileInfo + (messageText || 'Что ты можешь сказать об этом файле?');
 
         const chatResponse = await fetch(BACKEND_CHAT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            message: messageText,
+            message: fullMessage,
             image: contextImage,
             history: messages.slice(-10).map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'assistant',

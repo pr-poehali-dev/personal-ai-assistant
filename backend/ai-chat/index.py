@@ -34,6 +34,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     body = json.loads(event.get('body', '{}'))
     message: str = body.get('message', '')
     history: List[Dict[str, str]] = body.get('history', [])
+    image: str = body.get('image', None)
     
     if not message:
         return {
@@ -59,6 +60,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     try:
         prompt = f"Ты Ванёк - дружелюбный русскоязычный AI-помощник.\n\n"
+        
+        if image:
+            prompt += "[ВНИМАНИЕ: Пользователь прикрепил изображение. Опиши что видишь или ответь на вопрос об изображении.]\n\n"
         
         for msg in history[-5:]:
             role = "Пользователь" if msg.get('role') == 'user' else "Ванёк"
