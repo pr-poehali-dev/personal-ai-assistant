@@ -59,10 +59,16 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     messages.append({"role": "user", "content": message})
     
     try:
-        prompt = f"Ты Ванёк - дружелюбный русскоязычный AI-помощник.\n\n"
+        has_file_mention = '[Пользователь прикрепил' in message
         
-        if image:
-            prompt += "[ВНИМАНИЕ: Пользователь прикрепил изображение. Опиши что видишь или ответь на вопрос об изображении.]\n\n"
+        system_instructions = "Ты Ванёк - дружелюбный русскоязычный AI-помощник."
+        
+        if has_file_mention and image:
+            system_instructions += "\n\nКРИТИЧЕСКИ ВАЖНО: Пользователь УЖЕ ПРИКРЕПИЛ файл! Ты его ВИДИШЬ. НЕ проси прикрепить файл снова. Анализируй содержимое и отвечай на вопрос пользователя."
+        elif has_file_mention:
+            system_instructions += "\n\nВНИМАНИЕ: Пользователь прикрепил файл (не изображение). Ты видишь название и тип файла. НЕ проси прикрепить файл снова. Расскажи что знаешь об этом типе файлов или попроси подробнее описать задачу."
+        
+        prompt = f"{system_instructions}\n\n"
         
         for msg in history[-5:]:
             role = "Пользователь" if msg.get('role') == 'user' else "Ванёк"

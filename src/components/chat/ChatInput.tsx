@@ -80,7 +80,7 @@ export const ChatInput = ({
               onSend();
             }
           }}
-          className="min-h-[60px] resize-none"
+          className="min-h-[60px] max-h-[400px] resize-none"
           disabled={isLoading}
         />
         <Button
