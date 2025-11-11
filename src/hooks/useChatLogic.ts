@@ -282,7 +282,7 @@ export const useChatLogic = () => {
       } else {
         let contextImage = null;
         let fileInfo = '';
-        let fileData = null;
+        let audioAnalysis = null;
 
         if (isCameraRequest && isCameraOn) {
           contextImage = captureFrame();
@@ -290,9 +290,45 @@ export const useChatLogic = () => {
           if (fileToSend.type.startsWith('image/')) {
             contextImage = fileToSend.data;
             fileInfo = `[Пользователь прикрепил изображение: ${fileToSend.name}] `;
+          } else if (fileToSend.type.startsWith('audio/')) {
+            // Анализируем аудио локально в браузере
+            try {
+              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const audioData = await fetch(fileToSend.data);
+              const arrayBuffer = await audioData.arrayBuffer();
+              const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+              
+              const duration = audioBuffer.duration;
+              const sampleRate = audioBuffer.sampleRate;
+              const channels = audioBuffer.numberOfChannels;
+              
+              // Анализ громкости
+              const channelData = audioBuffer.getChannelData(0);
+              let sum = 0;
+              let max = 0;
+              for (let i = 0; i < channelData.length; i++) {
+                const abs = Math.abs(channelData[i]);
+                sum += abs;
+                if (abs > max) max = abs;
+              }
+              const avg = sum / channelData.length;
+              
+              audioAnalysis = {
+                duration: Math.round(duration * 100) / 100,
+                sampleRate: sampleRate,
+                channels: channels === 2 ? 'stereo' : 'mono',
+                peakLevel: Math.round(max * 100),
+                avgLevel: Math.round(avg * 100),
+                fileName: fileToSend.name,
+                fileSize: Math.round(arrayBuffer.byteLength / 1024)
+              };
+              
+              fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}, проанализировано] `;
+            } catch (e) {
+              fileInfo = `[Пользователь прикрепил аудио: ${fileToSend.name}, анализ не удался] `;
+            }
           } else {
             fileInfo = `[Пользователь прикрепил файл: ${fileToSend.name}, тип: ${fileToSend.type}] `;
-            fileData = fileToSend.data;
           }
         }
 
@@ -304,9 +340,7 @@ export const useChatLogic = () => {
           body: JSON.stringify({
             message: fullMessage,
             image: contextImage,
-            file: fileData,
-            fileName: fileToSend?.name,
-            fileType: fileToSend?.type,
+            audioAnalysis: audioAnalysis,
             history: messages.slice(-10).map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'assistant',
               content: msg.text

@@ -35,9 +35,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     message: str = body.get('message', '')
     history: List[Dict[str, str]] = body.get('history', [])
     image: str = body.get('image', None)
-    file_data: str = body.get('file', None)
-    file_name: str = body.get('fileName', '')
-    file_type: str = body.get('fileType', '')
+    audio_analysis: Dict = body.get('audioAnalysis', None)
     
     if not message:
         return {
@@ -63,60 +61,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     try:
         has_file_mention = '[Пользователь прикрепил' in message
-        audio_analysis = None
-        
-        # Анализируем аудио если прикрепили
-        if file_data and file_type.startswith('audio/'):
-            try:
-                import base64
-                import io
-                import wave
-                import struct
-                
-                # Декодируем base64
-                audio_bytes = base64.b64decode(file_data.split(',')[1] if ',' in file_data else file_data)
-                
-                # Базовый анализ WAV
-                if file_type == 'audio/wav' or file_name.endswith('.wav'):
-                    wav_io = io.BytesIO(audio_bytes)
-                    with wave.open(wav_io, 'rb') as wav:
-                        frames = wav.getnframes()
-                        rate = wav.getframerate()
-                        channels = wav.getnchannels()
-                        sampwidth = wav.getsampwidth()
-                        duration = frames / float(rate)
-                        
-                        # Читаем сэмплы для анализа громкости
-                        wav_io.seek(0)
-                        wav.rewind()
-                        samples = wav.readframes(frames)
-                        
-                        # Анализ пиковых значений
-                        if sampwidth == 2:  # 16-bit
-                            sample_array = struct.unpack(f'{frames * channels}h', samples)
-                            max_sample = max(abs(s) for s in sample_array)
-                            avg_sample = sum(abs(s) for s in sample_array) / len(sample_array)
-                            peak_db = 20 * (max_sample / 32768) if max_sample > 0 else -96
-                            avg_db = 20 * (avg_sample / 32768) if avg_sample > 0 else -96
-                        else:
-                            peak_db = avg_db = 0
-                        
-                        audio_analysis = {
-                            'duration': round(duration, 2),
-                            'sample_rate': rate,
-                            'channels': 'stereo' if channels == 2 else 'mono',
-                            'bit_depth': sampwidth * 8,
-                            'peak_db': round(peak_db, 2),
-                            'avg_db': round(avg_db, 2)
-                        }
-                else:
-                    # Для других форматов - базовая инфа
-                    audio_analysis = {
-                        'format': file_type,
-                        'size_kb': round(len(audio_bytes) / 1024, 2)
-                    }
-            except Exception as e:
-                audio_analysis = {'error': f'Не удалось проанализировать: {str(e)}'}
         
         system_instructions = "Ты Ванёк - дружелюбный русскоязычный AI-помощник. Отвечай кратко и по делу."
         
